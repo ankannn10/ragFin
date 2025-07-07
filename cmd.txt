@@ -1,0 +1,7 @@
+docker compose up --build
+
+{
+  "query": "What are Apple's main sources of revenue?",
+  "filename": "apple-10k-2023.pdf",
+  "top_k": 5
+}
