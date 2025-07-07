@@ -125,6 +125,18 @@ export default function DashboardPage() {
               </Card>
             </div>
 
+            <Card>
+              <CardHeader>
+                <CardTitle>Library Growth</CardTitle>
+                <CardDescription>Documents indexed over time</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-48 bg-muted rounded-lg flex items-center justify-center text-sm text-muted-foreground">
+                  Chart Placeholder
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Recent Activity and Document List */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Recent Documents */}

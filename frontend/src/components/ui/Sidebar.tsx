@@ -5,15 +5,16 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import useSWR from 'swr';
-import { 
-  BarChart3, 
-  Upload, 
-  MessageSquare, 
-  FileText, 
+import {
+  BarChart3,
+  Upload,
+  MessageSquare,
+  FileText,
   ChevronRight,
   Database,
   TrendingUp,
-  Activity
+  Activity,
+  Bot
 } from 'lucide-react';
 
 const fetcher = (url: string) => fetch(url).then(r => r.json());
@@ -48,10 +49,16 @@ export default function Sidebar({ current, onPick }: SidebarProps) {
       description: 'Document Management'
     },
     {
-      name: 'RAG Analysis',
+      name: 'RAG',
       href: '/rag',
       icon: MessageSquare,
-      description: 'AI-Powered Q&A'
+      description: 'Retriever Chat'
+    },
+    {
+      name: 'Ask',
+      href: '/ask',
+      icon: Bot,
+      description: 'Quick Q&A'
     }
   ];
 
