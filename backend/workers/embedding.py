@@ -15,6 +15,9 @@ import tempfile
 import uuid
 from typing import List, Dict
 
+# Sparse indexer
+from services.sparse_indexer import index_chunks
+
 import boto3
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
@@ -67,6 +70,65 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]
     step = max(chunk_size - overlap, 1)
     return [" ".join(words[i : i + chunk_size]) for i in range(0, len(words), step)]
 
+def chunk_subsection_aware(section_data: Dict, chunk_size: int = 500, overlap: int = 50) -> List[Dict]:
+    """
+    Create chunks based on subsections detected in sectioning.py.
+    Returns chunks with item_number and subsection_title metadata.
+    """
+    chunks = []
+    section_name = section_data["section"]
+    subsections = section_data.get("subsections", [])
+    
+    # Extract item number from section name (e.g., "ITEM 1." -> "ITEM 1")
+    item_number = section_name.replace(".", "").strip()
+    
+    if not subsections:
+        # No subsections detected, use traditional chunking
+        section_text = section_data["text"]
+        text_chunks = chunk_text(section_text, chunk_size, overlap)
+        
+        for idx, chunk in enumerate(text_chunks):
+            chunks.append({
+                "text": chunk,
+                "item_number": item_number,
+                "subsection_title": f"{item_number} - Full Content",
+                "chunk_idx": idx,
+                "subsection_start_pos": 0,
+                "subsection_end_pos": len(section_text)
+            })
+    else:
+        # Create chunks based on detected subsections
+        chunk_idx = 0
+        
+        for subsection in subsections:
+            subsection_title = subsection["title"]
+            subsection_content = subsection["content"]
+            
+            # Skip very short subsections
+            if len(subsection_content) < 100:
+                continue
+                
+            # Create chunks within this subsection
+            text_chunks = chunk_text(subsection_content, chunk_size, overlap)
+            
+            for sub_idx, chunk in enumerate(text_chunks):
+                # Skip very short chunks
+                if len(chunk.strip()) < 50:
+                    continue
+                    
+                chunks.append({
+                    "text": chunk,
+                    "item_number": item_number,
+                    "subsection_title": subsection_title,
+                    "chunk_idx": chunk_idx,
+                    "subsection_chunk_idx": sub_idx,
+                    "subsection_start_pos": subsection["start_pos"],
+                    "subsection_end_pos": subsection["end_pos"]
+                })
+                chunk_idx += 1
+    
+    return chunks
+
 
 # ───────────────────────────────────────────────
 # 3.  Clients
@@ -102,13 +164,33 @@ def embed_sections(self, sections_key: str, filename: str):
         sections = [json.loads(line) for line in body]
         print(f"[EMBED] Loaded {len(sections)} sections")
 
-        # 2) re-chunk each section (~500-word windows)
+        # 2) re-chunk each section using subsection-aware chunking
         chunks: List[Dict] = []
         for sec in sections:
-            for idx, chunk in enumerate(chunk_text(sec["text"])):
-                chunks.append(
-                    {"section": sec["section"], "chunk_idx": idx, "text": chunk}
-                )
+            section_name = sec["section"]
+            
+            # Get enhanced metadata if available
+            page_range = sec.get("page_range", [1, 1])
+            cross_references = sec.get("cross_references", [])
+            
+            # Use subsection-aware chunking
+            section_chunks = chunk_subsection_aware(sec)
+            
+            for chunk in section_chunks:
+                chunk_data = {
+                    "section": section_name,
+                    "chunk_idx": chunk["chunk_idx"],
+                    "text": chunk["text"],
+                    "page_range": page_range,
+                    "cross_references": cross_references,
+                    # New subsection metadata
+                    "item_number": chunk["item_number"],
+                    "subsection_title": chunk["subsection_title"],
+                    "subsection_chunk_idx": chunk.get("subsection_chunk_idx", 0),
+                    "subsection_start_pos": chunk.get("subsection_start_pos", 0),
+                    "subsection_end_pos": chunk.get("subsection_end_pos", 0)
+                }
+                chunks.append(chunk_data)
 
         if not chunks:
             print(f"[EMBED] No chunks found for {filename}")
@@ -147,6 +229,14 @@ def embed_sections(self, sections_key: str, filename: str):
                     "section": ch["section"],
                     "chunk_idx": ch["chunk_idx"],
                     "text": ch["text"],
+                    "page_range": ch.get("page_range", [1, 1]),
+                    "cross_references": ch.get("cross_references", []),
+                    # New subsection metadata for retrieval boosting
+                    "item_number": ch.get("item_number", ""),
+                    "subsection_title": ch.get("subsection_title", ""),
+                    "subsection_chunk_idx": ch.get("subsection_chunk_idx", 0),
+                    "subsection_start_pos": ch.get("subsection_start_pos", 0),
+                    "subsection_end_pos": ch.get("subsection_end_pos", 0)
                 },
             )
             points.append(point)
@@ -175,9 +265,16 @@ def embed_sections(self, sections_key: str, filename: str):
             print(f"[EMBED] Unexpected error during upsert: {e}")
             raise
 
+        # 7) index the same chunks into Elasticsearch (sparse)
+        try:
+            index_chunks(chunks, filename)
+        except Exception as exc:
+            # Do not fail the task if ES is temporarily unavailable
+            print(f"[EMBED] Warning: failed sparse index for {filename}: {exc}")
+
         print(
-            f"[EMBED] {filename}: {len(points)} chunks "
-            f"(dim={vector_dim}) → {settings.qdrant_collection}"
+            f"[EMBED] {filename}: {len(points)} chunks (dim={vector_dim}) → "
+            f"dense={settings.qdrant_collection} | sparse={settings.es_index}"
         )
         
     except Exception as e:

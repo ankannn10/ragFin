@@ -1,10 +1,12 @@
+#backend/workers/ingestion.py
+
 from pathlib import Path
 import tempfile
 import fitz  # PyMuPDF
 import boto3
+import json
 from app.config import settings
 from celery_app import celery_app
-import json
 from io import BytesIO
 from celery import signature 
 
@@ -22,18 +24,35 @@ def parse_file(self, object_key: str, filename: str):
         local = Path(tmpd) / filename
         s3.download_file(settings.s3_bucket_raw, object_key, str(local))
 
-        # text extraction
+        # Enhanced text extraction with page information
         doc = fitz.open(str(local))
-        text = "\n".join(page.get_text() for page in doc)
+        page_data = []
+        
+        for page_num, page in enumerate(doc):
+            text = page.get_text()
+            page_data.append({
+                "page_num": page_num + 1,
+                "text": text,
+                "bbox": [page.rect.x0, page.rect.y0, page.rect.x1, page.rect.y1]
+            })
+        
+        # Combine all text for backward compatibility
+        text = "\n".join(page["text"] for page in page_data)
 
-        # ⬇️  NEW – save raw text blob to MinIO
+        # Save raw text blob to MinIO (backward compatible)
         txt_key = f"{object_key.rsplit('.',1)[0]}.txt"
         s3.upload_fileobj(BytesIO(text.encode()), "processed-filings", txt_key)
+        
+        # Save page-structured data for enhanced processing
+        pages_key = f"{object_key.rsplit('.',1)[0]}.pages.json"
+        s3.upload_fileobj(BytesIO(json.dumps(page_data).encode()), "processed-filings", pages_key)
 
-        # ⬇️  NEW – enqueue sectioning task
+        # Enqueue sectioning task
         signature(
             "workers.sectioning.split_sections",
-            kwargs={"txt_key": txt_key, "filename": filename},
+            kwargs={"txt_key": txt_key, "pages_key": pages_key, "filename": filename},
         ).apply_async()
 
-        print(f"[INGEST] Stored raw text {txt_key} | {len(text)} chars")
+
+
+        print(f"[INGEST] Stored raw text {txt_key} and page data {pages_key} | {len(text)} chars across {len(page_data)} pages")

@@ -1,7 +1,7 @@
 services:
+  # ───────────── Backend (already working) ─────────────
   api:
     build: ./backend
-    
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./backend:/code
@@ -10,19 +10,53 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - redis
-      - minio
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
+
+  # ───────────── Elasticsearch (Sparse/BM25) ─────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.ml.enabled=false
+      - xpack.watcher.enabled=false
+      - ES_JAVA_OPTS=-Xms256m -Xmx512m
+      - "cluster.routing.allocation.disk.threshold_enabled=false"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    mem_limit: 700m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   worker:
     build: ./backend
-    command: celery -A celery_app.celery_app worker --loglevel=info
+    command: celery -A celery_app.celery_app worker --loglevel=info --concurrency=2
     volumes:
       - ./backend:/code
     env_file:
       - .env
+    mem_limit: 1500m
     depends_on:
-      - redis
-      - minio
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine
@@ -38,10 +72,9 @@ services:
     volumes:
       - minio_data:/data
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
+      - "9000:9000"
+      - "9001:9001"
 
-  # docker-compose.yml  (append under services:)
   qdrant:
     image: qdrant/qdrant:v1.9.5
     ports:
@@ -49,7 +82,20 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
+  # ───────────── Frontend (Next.js) ─────────────
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: "http://localhost:8000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
 volumes:
   minio_data:
   qdrant_storage:
-
+  es_data:

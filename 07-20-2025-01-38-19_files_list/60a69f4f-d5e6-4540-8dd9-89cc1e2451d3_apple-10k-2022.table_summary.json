@@ -1,0 +1,23 @@
+{
+  "total_tables": 6,
+  "table_types": {
+    "income_statement": 3,
+    "unknown": 1,
+    "balance_sheet": 2
+  },
+  "key_metrics": [
+    "assets",
+    "revenue",
+    "expense",
+    "income"
+  ],
+  "pages_with_tables": [
+    36,
+    48,
+    49,
+    52,
+    58,
+    31
+  ],
+  "filename": "apple-10k-2022.pdf"
+}

@@ -1,3 +1,5 @@
+#backend/app/config.py
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -15,7 +17,14 @@ class Settings(BaseSettings):
 
     qdrant_url: str = "http://qdrant:6333"
     qdrant_collection: str = "sec_chunks_bge_v1"
-    
+
+    # Elasticsearch (sparse)
+    es_host: str = "http://elasticsearch:9200"
+    es_index: str = "sec_sparse_index"
+
+    # Hybrid retrieval weight (α for dense similarity)
+    hybrid_alpha: float = 0.7
+
     gemini_api_key: str
     gemini_model: str = "models/gemini-1.5-pro-latest"
 

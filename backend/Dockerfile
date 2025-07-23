@@ -2,8 +2,7 @@
 # Base image
 FROM python:3.11-slim
 
-# Install system deps (if you need poppler / ghostscript later,
-# add them here). For now just basic build tools & libmupdf.
+# Install system deps for table extraction and PDF processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc build-essential libmupdf-dev && \
     rm -rf /var/lib/apt/lists/*

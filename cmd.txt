@@ -5,3 +5,8 @@ docker compose up --build
   "filename": "apple-10k-2023.pdf",
   "top_k": 5
 }
+
+http://localhost:3000 → frontend
+
+http://localhost:8000/docs → FastAPI docs
+Tail-Logs: docker compose logs -f frontend (or any service).
